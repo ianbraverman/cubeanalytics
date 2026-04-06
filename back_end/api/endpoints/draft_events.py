@@ -5,6 +5,7 @@ import random
 import shutil
 import uuid
 from pathlib import Path
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status
 from sqlalchemy.orm import Session
@@ -217,7 +218,7 @@ async def create_deck(event_id: int, deck: UserDeckCreate, db: Session = Depends
     if not event:
         raise HTTPException(status_code=404, detail="Draft event not found")
     deck.draft_event_id = event_id
-    user_id = deck.user_id or 1
+    user_id = deck.user_id  # None for guest decks entered by the cube owner on behalf of a player
     new_deck = UserDeckService.create_user_deck(db, deck, user_id=user_id)
     return _deck_response(new_deck)
 
@@ -287,10 +288,10 @@ async def analyze_deck_photos(
     event_id: int,
     deck_id: int,
     deck_file: UploadFile = File(...),
-    pool_file: UploadFile = File(...),
+    pool_file: Optional[UploadFile] = None,
     db: Session = Depends(get_db),
 ):
-    """Upload deck photo + full-pool photo. AI identifies both, diffs to produce sideboard."""
+    """Upload deck photo and optionally a full-pool photo. AI identifies both, diffs to produce sideboard."""
     deck = UserDeckService.get_user_deck_by_id(db, deck_id)
     if not deck:
         raise HTTPException(status_code=404, detail="Deck not found")
@@ -303,13 +304,16 @@ async def analyze_deck_photos(
         shutil.copyfileobj(deck_file.file, f)
     deck_photo_url = f"/uploads/deck_photos/{deck_filename}"
 
-    # Save pool photo
-    ext2 = Path(pool_file.filename).suffix if pool_file.filename else ".jpg"
-    pool_filename = f"{uuid.uuid4()}{ext2}"
-    pool_path = UPLOAD_DIR / pool_filename
-    with pool_path.open("wb") as f:
-        shutil.copyfileobj(pool_file.file, f)
-    pool_photo_url = f"/uploads/deck_photos/{pool_filename}"
+    # Save pool photo (optional)
+    pool_photo_url: str | None = None
+    pool_path: Path | None = None
+    if pool_file is not None:
+        ext2 = Path(pool_file.filename).suffix if pool_file.filename else ".jpg"
+        pool_filename = f"{uuid.uuid4()}{ext2}"
+        pool_path = UPLOAD_DIR / pool_filename
+        with pool_path.open("wb") as f:
+            shutil.copyfileobj(pool_file.file, f)
+        pool_photo_url = f"/uploads/deck_photos/{pool_filename}"
 
     # Persist photo URLs immediately
     UserDeckService.update_user_deck(
@@ -327,28 +331,49 @@ async def analyze_deck_photos(
 
     try:
         deck_bytes = deck_path.read_bytes()
-        pool_bytes = pool_path.read_bytes()
         deck_mime = deck_file.content_type or "image/jpeg"
-        pool_mime = pool_file.content_type or "image/jpeg"
         candidate_names = _get_cube_card_name_candidates(db, event_id)
 
-        deck_identified = AIService.identify_cards_from_photo(
-            deck_bytes,
-            deck_mime,
-            candidate_card_names=candidate_names,
-        )
-        pool_identified = AIService.identify_cards_from_photo(
-            pool_bytes,
-            pool_mime,
-            candidate_card_names=candidate_names,
-        )
+        deck_error: str | None = None
+        pool_error: str | None = None
 
+        try:
+            deck_identified = AIService.identify_cards_from_photo(
+                deck_bytes,
+                deck_mime,
+                candidate_card_names=candidate_names,
+            )
+        except Exception as exc:
+            deck_identified = []
+            deck_error = str(exc)
+
+        pool_identified: list[str] = []
+        if pool_path is not None:
+            pool_mime = pool_file.content_type or "image/jpeg"  # type: ignore[union-attr]
+            try:
+                pool_identified = AIService.identify_cards_from_photo(
+                    pool_path.read_bytes(),
+                    pool_mime,
+                    candidate_card_names=candidate_names,
+                )
+            except Exception as exc:
+                pool_error = str(exc)
+
+        # Sideboard = cards in full pool that are NOT in the deck
         deck_set = {n.lower() for n in deck_identified}
-        sideboard_identified = [n for n in pool_identified if n.lower() not in deck_set]
+        # Only compute sideboard when pool analysis actually returned results
+        if pool_identified:
+            sideboard_identified = [n for n in pool_identified if n.lower() not in deck_set]
+        else:
+            sideboard_identified = []
 
         result["deck_identified"] = deck_identified
         result["pool_identified"] = pool_identified
         result["sideboard_identified"] = sideboard_identified
+        if deck_error:
+            result["deck_photo_error"] = f"Deck photo analysis failed: {deck_error}"
+        if pool_error:
+            result["pool_photo_error"] = f"Pool photo analysis failed: {pool_error}"
         if not deck_identified and not pool_identified:
             result["ai_error"] = "No card names could be identified from either photo. Try clearer, closer photos with card titles fully visible."
         else:
@@ -374,22 +399,26 @@ async def analyze_deck_photos(
                             logger.warning("Identified card name not found in DB: %s", nm)
                 return ids
 
-            deck_ids = _names_to_ids(deck_identified)
-            pool_ids = _names_to_ids(pool_identified)
-            side_ids = _names_to_ids(sideboard_identified)
+            # Only include a field in the update when we actually have data for it.
+            # Using `or None` would pass None explicitly and clear existing DB data,
+            # so we build the payload selectively.
+            update_kwargs: dict = {}
+            if deck_identified:
+                update_kwargs["deck_cards"] = _names_to_ids(deck_identified)
+            if pool_identified:
+                pool_ids = _names_to_ids(pool_identified)
+                update_kwargs["full_pool_cards"] = pool_ids
+            if sideboard_identified:
+                update_kwargs["sideboard_cards"] = _names_to_ids(sideboard_identified)
 
-            # Update the user deck record with the identified card IDs
-            try:
-                UserDeckService.update_user_deck(
-                    db, deck_id,
-                    UserDeckUpdate(
-                        deck_cards=deck_ids or None,
-                        full_pool_cards=pool_ids or None,
-                        sideboard_cards=side_ids or None,
+            if update_kwargs:
+                try:
+                    UserDeckService.update_user_deck(
+                        db, deck_id,
+                        UserDeckUpdate(**update_kwargs)
                     )
-                )
-            except Exception:
-                logger.exception("Failed to persist identified cards for deck_id=%s", deck_id)
+                except Exception:
+                    logger.exception("Failed to persist identified cards for deck_id=%s", deck_id)
     except Exception as e:
         result["ai_error"] = str(e)
 
@@ -433,17 +462,98 @@ async def generate_draft_summary(event_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Draft event not found")
 
     cube = CubeService.get_cube_by_id(db, event.cube_id)
-    deck_data = [
-        {"player_name": d.player_name, "deck_name": d.deck_name,
-         "record": d.record, "ai_description": d.ai_description}
-        for d in event.user_decks
-    ]
+
+    # ── Build rich deck data — card names + auto-generate missing descriptions ──
+    deck_data = []
+    for d in event.user_decks:
+        card_ids = UserDeckService._deserialize(d.deck_cards)
+        card_names: list[str] = []
+        for cid in card_ids:
+            card = CardService.get_card_by_id(db, cid)
+            if card:
+                card_names.append(card.name)
+
+        # Auto-generate deck description if missing
+        description = d.ai_description
+        if not description and card_names:
+            try:
+                description = AIService.generate_deck_description(
+                    player_name=d.player_name,
+                    deck_name=d.deck_name,
+                    card_names=card_names,
+                    record=d.record,
+                )
+                UserDeckService.update_user_deck(
+                    db, d.id, UserDeckUpdate(ai_description=description)
+                )
+                logger.info("Auto-generated description for deck_id=%s", d.id)
+            except Exception:
+                logger.warning("Could not auto-generate description for deck_id=%s", d.id)
+
+        deck_data.append({
+            "player_name": d.player_name,
+            "deck_name": d.deck_name,
+            "record": d.record,
+            "ai_description": description or "",
+            "card_names": card_names,
+        })
+
+    # ── Load round/pairing data for matchup context ──
+    rounds_data: list[dict] = []
+    try:
+        db_rounds = db.query(DraftRound).filter(DraftRound.draft_event_id == event_id).order_by(DraftRound.round_number).all()
+        for r in db_rounds:
+            pairings_info = []
+            for p in r.pairings:
+                p1_name = p.player1.username if p.player1 else None
+                p2_name = p.player2.username if p.player2 else "BYE"
+                winner_name = None
+                if p.winner_user_id:
+                    if p.winner_user_id == p.player1_user_id:
+                        winner_name = p1_name
+                    elif p.player2 and p.winner_user_id == p.player2_user_id:
+                        winner_name = p2_name
+                pairings_info.append({
+                    "p1_name": p1_name,
+                    "p2_name": p2_name,
+                    "p1_wins": p.player1_wins or 0,
+                    "p2_wins": p.player2_wins or 0,
+                    "winner_name": winner_name,
+                })
+            rounds_data.append({"round_num": r.round_number, "pairings": pairings_info})
+    except Exception:
+        logger.warning("Could not load round data for event_id=%s", event_id)
+
+    # ── Load post-draft feedback ──────────────────────────────────────────────
+    feedback_data: list[dict] = []
+    try:
+        post_fb = db.query(PostDraftFeedback).filter(PostDraftFeedback.draft_event_id == event_id).all()
+        for fb in post_fb:
+            # Use saved player_name first, then look up via user_id in decks
+            player_name = fb.player_name
+            if not player_name and fb.user_id:
+                player_name = next(
+                    (d.player_name for d in event.user_decks if d.user_id == fb.user_id),
+                    None,
+                )
+            if not player_name:
+                player_name = f"Player {fb.user_id}" if fb.user_id else "Anonymous"
+            feedback_data.append({
+                "player_name": player_name,
+                "rating": fb.overall_rating,
+                "thoughts": fb.overall_thoughts,
+                "recommendations": fb.recommendations_for_owner,
+            })
+    except Exception:
+        logger.warning("Could not load feedback for event_id=%s", event_id)
 
     try:
         summary = AIService.generate_draft_summary(
             draft_name=event.name,
             cube_name=cube.name if cube else None,
             decks=deck_data,
+            rounds=rounds_data or None,
+            feedback=feedback_data or None,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI generation failed: {e}")
@@ -811,18 +921,39 @@ async def submit_post_draft_feedback(
     user_id: int | None = Query(None),
     db: Session = Depends(get_db),
 ):
-    """Submit overall post-draft feedback from a player."""
+    """Submit overall post-draft feedback from a player.
+    Organizers can omit user_id and supply player_name instead.
+    """
     resolved_user_id = body.user_id or user_id
-    existing = db.query(PostDraftFeedback).filter(
-        PostDraftFeedback.draft_event_id == event_id,
-        PostDraftFeedback.user_id == resolved_user_id,
-    ).first()
-    fb = existing or PostDraftFeedback(draft_event_id=event_id, user_id=resolved_user_id)
+    resolved_player_name = body.player_name
+
+    # Look up existing: prefer match by user_id if provided, else by player_name
+    if resolved_user_id:
+        existing = db.query(PostDraftFeedback).filter(
+            PostDraftFeedback.draft_event_id == event_id,
+            PostDraftFeedback.user_id == resolved_user_id,
+        ).first()
+    elif resolved_player_name:
+        existing = db.query(PostDraftFeedback).filter(
+            PostDraftFeedback.draft_event_id == event_id,
+            PostDraftFeedback.player_name == resolved_player_name,
+            PostDraftFeedback.user_id.is_(None),
+        ).first()
+    else:
+        raise HTTPException(status_code=400, detail="Provide user_id or player_name")
+
+    fb = existing or PostDraftFeedback(
+        draft_event_id=event_id,
+        user_id=resolved_user_id,
+        player_name=resolved_player_name,
+    )
     fb.overall_rating = body.overall_rating
     fb.overall_thoughts = body.overall_thoughts
     fb.standout_card_ids = json.dumps(body.standout_card_ids or [])
     fb.underperformer_card_ids = json.dumps(body.underperformer_card_ids or [])
     fb.recommendations_for_owner = body.recommendations_for_owner
+    if resolved_player_name:
+        fb.player_name = resolved_player_name
     if not existing:
         db.add(fb)
     db.commit()
@@ -842,10 +973,17 @@ def _post_draft_fb_response(f: PostDraftFeedback) -> dict:
             return json.loads(v) if v else []
         except Exception:
             return []
+    # Resolve a display name: player_name field → user.username → fallback
+    display_name = f.player_name
+    if not display_name and hasattr(f, 'user') and f.user:
+        display_name = f.user.username
+    elif not display_name and f.user_id:
+        display_name = f"Player {f.user_id}"
     return {
         "id": f.id,
         "draft_event_id": f.draft_event_id,
         "user_id": f.user_id,
+        "player_name": display_name,
         "overall_rating": f.overall_rating,
         "overall_thoughts": f.overall_thoughts,
         "standout_card_ids": _load(f.standout_card_ids),

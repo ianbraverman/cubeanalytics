@@ -482,7 +482,7 @@ class AIService:
                 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
                 models = client.models
 
-            response = models.generate_content(model=text_model, contents=prompt, max_output_tokens=400)
+            response = models.generate_content(model=text_model, contents=prompt)
             text = getattr(response, "text", None)
             if not text:
                 cand = getattr(response, "candidates", None) or getattr(response, "output", None)
@@ -501,28 +501,112 @@ class AIService:
     def generate_draft_summary(
         draft_name: Optional[str],
         cube_name: Optional[str],
-        decks: list[dict],  # list of {player_name, deck_name, record, ai_description}
+        decks: list[dict],
+        rounds: Optional[list[dict]] = None,
+        feedback: Optional[list[dict]] = None,
     ) -> str:
         """
-        Generate a narrative summary of an entire draft.
+        Generate a detailed, multi-section narrative summary of an entire draft.
+
+        Each deck dict should contain:
+          player_name, deck_name, record, ai_description, card_names (list[str])
+
+        Each round dict (optional):
+          round_num, pairings: [{p1_name, p2_name, p1_wins, p2_wins, winner_name}]
+
+        Each feedback dict (optional):
+          player_name, rating, thoughts, recommendations
         """
         client = _get_client()
-        deck_lines = []
+
+        # ── Build per-deck section ──────────────────────────────────────
+        deck_sections = []
         for d in decks:
             name = d.get("player_name") or "Unknown"
-            deck = d.get("deck_name") or "Unnamed"
+            deck_name = d.get("deck_name") or "Unnamed"
             rec = d.get("record") or "N/A"
             desc = d.get("ai_description") or ""
-            deck_lines.append(f"- {name} ({deck}) [{rec}]: {desc}")
+            cards = d.get("card_names") or []
+            card_list_str = ", ".join(cards) if cards else "(no card list)"
 
-        decks_text = "\n".join(deck_lines) if deck_lines else "(no deck data)"
-        prompt = (
-            f"You are a Magic: The Gathering draft narrator. "
-            f"Write a 3-5 sentence story summarizing what happened in this draft: who won, what archetypes were in contention, and any notable performances.\n\n"
-            f"Draft: {draft_name or 'Unnamed Draft'}\n"
-            f"Cube: {cube_name or 'Unknown Cube'}\n"
-            f"Decks:\n{decks_text}"
-        )
+            section = f"### {name} — \"{deck_name}\" [{rec}]\n"
+            if desc:
+                section += f"Deck description: {desc}\n"
+            section += f"Cards ({len(cards)}): {card_list_str}"
+            deck_sections.append(section)
+
+        decks_text = "\n\n".join(deck_sections) if deck_sections else "(no deck data)"
+
+        # ── Build rounds/matchups section ───────────────────────────────
+        rounds_text = ""
+        if rounds:
+            round_lines = []
+            for r in rounds:
+                rn = r.get("round_num", "?")
+                pairings_str = []
+                for p in r.get("pairings", []):
+                    p1 = p.get("p1_name", "?")
+                    p2 = p.get("p2_name", "BYE")
+                    p1w = p.get("p1_wins", 0)
+                    p2w = p.get("p2_wins", 0)
+                    winner = p.get("winner_name", "")
+                    if p2 == "BYE":
+                        pairings_str.append(f"  {p1} received a BYE")
+                    else:
+                        result = f"{p1} {p1w}-{p2w} {p2}"
+                        if winner:
+                            result += f" → {winner} wins"
+                        pairings_str.append(f"  {result}")
+                round_lines.append(f"Round {rn}:\n" + "\n".join(pairings_str))
+            rounds_text = "\n\n".join(round_lines)
+
+        # ── Build feedback section ──────────────────────────────────────
+        feedback_text = ""
+        if feedback:
+            fb_lines = []
+            for fb in feedback:
+                pn = fb.get("player_name") or "Anonymous"
+                rating = fb.get("rating")
+                thoughts = fb.get("thoughts") or ""
+                recs = fb.get("recommendations") or ""
+                line = f"  {pn}"
+                if rating:
+                    line += f" (rated {rating}/10)"
+                if thoughts:
+                    line += f": \"{thoughts}\""
+                if recs:
+                    line += f" | Recs: \"{recs}\""
+                fb_lines.append(line)
+            feedback_text = "\n".join(fb_lines)
+
+        # ── Build the master prompt ─────────────────────────────────────
+        prompt_parts = [
+            "You are an expert Magic: The Gathering draft analyst and narrator.",
+            "Write a comprehensive, in-depth narrative summary of the following draft.",
+            "Your summary MUST include the following clearly separated sections:\n",
+            "**1. Draft Overview** — A multi-paragraph narrative opening: what cube was drafted, who the players are, the overall tone of the draft, and who came out on top. Talk about the meta strategies that emerged, any notable tensions during the draft (e.g. colour fights, contested archetypes). This section should be 2-4 paragraphs.\n",
+            "**2. Deck Breakdowns** — For EACH player write a dedicated subsection (3-6 paragraphs) covering:",
+            "   - The deck's core archetype and strategic identity",
+            "   - Key cards and why they matter in this deck",
+            "   - Synergies and combos present in the list",
+            "   - Strengths, weaknesses, and how the deck lines up against the field",
+            "   - How the deck performed (based on record and matchup results if available)\n",
+            "**3. Matchup Analysis** — If round data is available, break down each significant matchup: what happened, what each deck needed to win, and what the deciding factors were. If no round data, discuss theoretical matchups based on the archetypes.\n",
+            "**4. Player Feedback & Cube Health** (if feedback is available) — Summarise what players thought of the cube, standout cards, and anything the cube owner should consider.\n",
+            "**5. Closing Thoughts** — A closing paragraph reflecting on the draft as a whole: what made it memorable, what it says about the cube's design, and any outstanding storylines.\n",
+            "Be specific — reference actual card names, actual game results, and use the players' real names throughout. Write in an engaging, analytical style like a tournament coverage article.\n",
+            "---",
+            f"Draft: {draft_name or 'Unnamed Draft'}",
+            f"Cube: {cube_name or 'Unknown Cube'}\n",
+            "=== DECKS ===\n" + decks_text,
+        ]
+        if rounds_text:
+            prompt_parts.append("\n=== ROUND RESULTS ===\n" + rounds_text)
+        if feedback_text:
+            prompt_parts.append("\n=== PLAYER FEEDBACK ===\n" + feedback_text)
+
+        prompt = "\n".join(prompt_parts)
+
         text_model = os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-flash")
         try:
             models = getattr(client, "models", None)
@@ -530,7 +614,7 @@ class AIService:
                 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
                 models = client.models
 
-            response = models.generate_content(model=text_model, contents=prompt, max_output_tokens=500)
+            response = models.generate_content(model=text_model, contents=prompt)
             text = getattr(response, "text", None)
             if not text:
                 cand = getattr(response, "candidates", None) or getattr(response, "output", None)
@@ -560,9 +644,9 @@ class AIService:
 
         # Build the prompt exactly as you requested
         if candidates:
-            prompt = "Tell me what cards are in this photo. They will only be from this list:\n" + "\n".join(candidates)
+            prompt = "Tell me what cards are in this photo. Ignore basic lands. They will only be from this list:\n" + "\n".join(candidates)
         else:
-            prompt = "Tell me what cards are in this photo. List identified cards one per line."
+            prompt = "Tell me what cards are in this photo. Ignore basic lands. List identified cards one per line."
 
         try:
             models = getattr(client, "models", None)
@@ -606,4 +690,4 @@ class AIService:
             return names
         except Exception:
             logger.exception("identify_cards_from_photo failed")
-            return []
+            raise

@@ -25,3 +25,6 @@ dist-ssr
 
 .env.local
 .env.production
+.env
+back_end/.env
+testingphotos/

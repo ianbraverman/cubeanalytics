@@ -1,4 +1,5 @@
 import json
+from typing import Optional
 from sqlalchemy.orm import Session
 from api.models import UserDeck
 from api.schemas import UserDeckCreate, UserDeckUpdate
@@ -22,7 +23,7 @@ class UserDeckService:
 
     # ------------------------------------------------------------------ CRUD
     @staticmethod
-    def create_user_deck(db: Session, deck: UserDeckCreate, user_id: int) -> UserDeck:
+    def create_user_deck(db: Session, deck: UserDeckCreate, user_id: Optional[int]) -> UserDeck:
         record = deck.record or f"{deck.wins or 0}-{deck.losses or 0}"
         db_deck = UserDeck(
             user_id=user_id,

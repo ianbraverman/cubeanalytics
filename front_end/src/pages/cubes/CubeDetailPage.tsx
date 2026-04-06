@@ -433,12 +433,6 @@ export default function CubeDetailPage() {
             >
               {isAddingCards ? 'Cancel' : 'Update Cards'}
             </button>
-            <Link
-              to={`/cubes/${cubeId}/edit`}
-              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
-            >
-              Edit
-            </Link>
             <button
               onClick={handleClearCards}
               disabled={!cubeCards || cubeCards.length === 0}

@@ -7,7 +7,7 @@ class UserDeck(Base):
     __tablename__ = "user_decks"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     draft_event_id = Column(Integer, ForeignKey("draft_events.id"), nullable=False)
     player_name = Column(String(100), nullable=True)        # display name for this draft
     deck_name = Column(String(200), nullable=True)          # e.g. "WU Skies"

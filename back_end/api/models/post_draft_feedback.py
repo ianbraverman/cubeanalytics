@@ -10,7 +10,8 @@ class PostDraftFeedback(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     draft_event_id = Column(Integer, ForeignKey("draft_events.id"), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)   # nullable for organizer-entered feedback
+    player_name = Column(String, nullable=True)                   # display name when no user_id
     overall_rating = Column(Integer, nullable=True)               # 1-5
     overall_thoughts = Column(Text, nullable=True)                # freeform
     # JSON lists of card IDs

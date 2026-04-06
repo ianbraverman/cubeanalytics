@@ -99,7 +99,8 @@ export interface RoundFeedback {
 export interface PostDraftFeedback {
   id: number
   draft_event_id: number
-  user_id: number
+  user_id?: number
+  player_name?: string
   overall_rating?: number
   overall_thoughts?: string
   standout_card_ids: number[]
@@ -193,10 +194,10 @@ export const draftsApi = {
     draftId: number,
     deckId: number,
     deckFile: File,
-    poolFile: File,
+    poolFile: File | null,
   ): Promise<{
     deck_photo_url: string
-    pool_photo_url: string
+    pool_photo_url: string | null
     deck_identified: string[]
     pool_identified: string[]
     sideboard_identified: string[]
@@ -204,7 +205,7 @@ export const draftsApi = {
   }> => {
     const form = new FormData()
     form.append('deck_file', deckFile)
-    form.append('pool_file', poolFile)
+    if (poolFile) form.append('pool_file', poolFile)
     return apiClient
       .post(`/draft-events/${draftId}/decks/${deckId}/analyze-photos`, form, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -278,6 +279,7 @@ export const draftsApi = {
   submitPostDraftFeedback: (
     draftId: number,
     payload: {
+      player_name?: string
       overall_rating?: number
       overall_thoughts?: string
       standout_card_ids?: number[]

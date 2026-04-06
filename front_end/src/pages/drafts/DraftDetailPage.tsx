@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { draftsApi, type UserDeck, type DraftSeat, type DraftRound, type DraftPairing } from '../../api/drafts'
+import ReactMarkdown from 'react-markdown'
+import { draftsApi, type UserDeck, type DraftParticipant, type DraftSeat, type DraftRound, type DraftPairing } from '../../api/drafts'
 import { cubesApi, type CubeCard } from '../../api/cubes'
 import Layout from '../../components/Layout'
 import { useAuth } from '../../auth/AuthProvider'
@@ -73,8 +74,8 @@ export default function DraftDetailPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['draft', eventId] }),
   })
 
-  // ── add deck form (curator / manual entry) ──
-  const [showAddDeck, setShowAddDeck] = useState(false)
+  // ── empty slot toggle (owner can expand to add a guest deck) ──
+  const [openEmptySlot, setOpenEmptySlot] = useState<number | null>(null)
 
   // ── change password ──
   const [showChangePassword, setShowChangePassword] = useState(false)
@@ -103,6 +104,37 @@ export default function DraftDetailPage() {
 
   // leaderboard: sorted by wins desc
   const sorted = [...decks].sort((a, b) => (b.wins ?? 0) - (a.wins ?? 0))
+
+  // ── Unified casual draft slot list ──
+  type CasualSlot =
+    | { kind: 'my'; deck?: UserDeck }
+    | { kind: 'participant'; participant: DraftParticipant; deck?: UserDeck }
+    | { kind: 'guest'; deck: UserDeck }
+    | { kind: 'empty'; index: number }
+
+  const casualSlots: CasualSlot[] = []
+  if (draft.event_type !== 'hosted') {
+    if (user && isParticipant) {
+      casualSlots.push({ kind: 'my', deck: myDeck })
+    }
+    const otherParticipants = (draft.participants ?? []).filter((p) => !user || p.user_id !== user.id)
+    const accountedDeckIds = new Set<number>(myDeck ? [myDeck.id] : [])
+    otherParticipants.forEach((p) => {
+      const deck = decks.find((d) => d.user_id === p.user_id && (!myDeck || d.id !== myDeck.id))
+      if (deck) accountedDeckIds.add(deck.id)
+      casualSlots.push({ kind: 'participant', participant: p, deck })
+    })
+    decks.filter((d) => !accountedDeckIds.has(d.id)).forEach((d) => {
+      casualSlots.push({ kind: 'guest', deck: d })
+    })
+    if (isCubeOwner && draft.num_players) {
+      const filled = casualSlots.filter((s) => s.kind !== 'empty').length
+      const emptyCount = Math.max(0, draft.num_players - filled)
+      for (let i = 0; i < emptyCount; i++) {
+        casualSlots.push({ kind: 'empty', index: i })
+      }
+    }
+  }
 
   return (
     <Layout>
@@ -154,12 +186,7 @@ export default function DraftDetailPage() {
               >
                 {draftAIMutation.isPending ? '✨ Generating…' : '✨ AI Draft Summary'}
               </button>
-              <button
-                onClick={() => setShowAddDeck((v) => !v)}
-                className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 text-sm"
-              >
-                {showAddDeck ? 'Cancel' : '+ Add Deck for Others'}
-              </button>
+
               {isCubeOwner && (
                 <button
                   onClick={() => { setShowChangePassword((v) => !v); setChangePasswordMsg('') }}
@@ -205,8 +232,10 @@ export default function DraftDetailPage() {
           {/* AI Summary */}
           {draft.ai_summary && (
             <div className="mt-4 bg-purple-50 border border-purple-200 rounded-lg p-4">
-              <div className="text-xs font-semibold text-purple-600 uppercase tracking-wide mb-1">✨ AI Draft Narrative</div>
-              <p className="text-sm text-gray-700 italic">{draft.ai_summary}</p>
+              <div className="text-xs font-semibold text-purple-600 uppercase tracking-wide mb-2">✨ AI Draft Narrative</div>
+              <div className="prose prose-sm max-w-none text-gray-800 [&>h1]:text-lg [&>h1]:font-bold [&>h1]:mt-4 [&>h1]:mb-2 [&>h2]:text-base [&>h2]:font-bold [&>h2]:mt-3 [&>h2]:mb-1 [&>h3]:text-sm [&>h3]:font-semibold [&>h3]:mt-3 [&>h3]:mb-1 [&>p]:mb-2 [&>hr]:my-3 [&>strong]:font-semibold">
+                <ReactMarkdown>{String(draft.ai_summary)}</ReactMarkdown>
+              </div>
             </div>
           )}
 
@@ -311,34 +340,7 @@ export default function DraftDetailPage() {
           />
         )}
 
-        {/* ── My Deck section (joined player, casual only) ── */}
-        {draft.event_type !== 'hosted' && user && isParticipant && (
-          <div className="bg-white rounded-lg shadow-md border-2 border-indigo-200 overflow-hidden">
-            <div className="bg-indigo-600 text-white px-5 py-3 flex items-center justify-between">
-              <div className="font-semibold">🧑‍💻 Your Deck — {user.username}</div>
-              {myDeck && <div className="text-indigo-200 text-sm">{myDeck.wins}–{myDeck.losses}</div>}
-            </div>
-            {myDeck ? (
-              <DeckCard
-                deck={myDeck}
-                draftId={eventId}
-                cardMap={cardMap}
-                onUpdated={() => queryClient.invalidateQueries({ queryKey: ['draft', eventId] })}
-              />
-            ) : (
-              <div className="p-5">
-                <p className="text-sm text-gray-500 mb-4">You've joined the draft — submit your deck below.</p>
-                <AddDeckForm
-                  draftId={eventId}
-                  cubeCards={cubeCards}
-                  userId={user.id}
-                  defaultPlayerName={user.username}
-                  onCreated={() => queryClient.invalidateQueries({ queryKey: ['draft', eventId] })}
-                />
-              </div>
-            )}
-          </div>
-        )}
+
 
         {/* standings (casual only) */}
         {draft.event_type !== 'hosted' && sorted.length > 0 && (
@@ -373,36 +375,120 @@ export default function DraftDetailPage() {
           </div>
         )}
 
-        {/* add deck form (casual only) */}
-        {draft.event_type !== 'hosted' && showAddDeck && (
-          <AddDeckForm
-            draftId={eventId}
-            cubeCards={cubeCards}
-            onCreated={() => {
-              queryClient.invalidateQueries({ queryKey: ['draft', eventId] })
-              setShowAddDeck(false)
-            }}
-          />
+        {/* ── Casual draft: unified deck slots ── */}
+        {draft.event_type !== 'hosted' && (
+          casualSlots.length > 0 ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              {casualSlots.map((slot) => {
+                if (slot.kind === 'my') {
+                  return (
+                    <div key="my" className="bg-white rounded-lg shadow-md border-2 border-indigo-200 overflow-hidden">
+                      <div className="bg-indigo-600 text-white px-5 py-3 flex items-center justify-between">
+                        <div className="font-semibold">🧑‍💻 Your Deck — {user!.username}</div>
+                        {slot.deck && <div className="text-indigo-200 text-sm">{slot.deck.wins}–{slot.deck.losses}</div>}
+                      </div>
+                      {slot.deck ? (
+                        <DeckCard deck={slot.deck} draftId={eventId} cardMap={cardMap}
+                          onUpdated={() => queryClient.invalidateQueries({ queryKey: ['draft', eventId] })}
+                          userId={user?.id} isCubeOwner={isCubeOwner} isMyDeck={true} />
+                      ) : (
+                        <div className="p-5">
+                          <p className="text-sm text-gray-500 mb-4">Submit your deck below.</p>
+                          <AddDeckForm draftId={eventId} cubeCards={cubeCards} userId={user!.id}
+                            lockedPlayerName={user!.username}
+                            onCreated={() => queryClient.invalidateQueries({ queryKey: ['draft', eventId] })} />
+                        </div>
+                      )}
+                    </div>
+                  )
+                }
+                if (slot.kind === 'participant') {
+                  return (
+                    <div key={`p-${slot.participant.user_id}`} className="bg-white rounded-lg shadow-md overflow-hidden">
+                      <div className="bg-gray-50 border-b px-5 py-3 flex items-center justify-between">
+                        <div className="font-medium text-gray-800">👤 {slot.participant.username}</div>
+                        {slot.deck
+                          ? <div className="text-sm text-gray-500">{slot.deck.wins}–{slot.deck.losses}</div>
+                          : <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">Deck pending</span>
+                        }
+                      </div>
+                      {slot.deck ? (
+                        <DeckCard deck={slot.deck} draftId={eventId} cardMap={cardMap}
+                          onUpdated={() => queryClient.invalidateQueries({ queryKey: ['draft', eventId] })}
+                          userId={user?.id} isCubeOwner={isCubeOwner} isMyDeck={false} />
+                      ) : isCubeOwner ? (
+                        <div className="p-4">
+                          <AddDeckForm draftId={eventId} cubeCards={cubeCards}
+                            defaultPlayerName={slot.participant.username}
+                            onCreated={() => queryClient.invalidateQueries({ queryKey: ['draft', eventId] })} />
+                        </div>
+                      ) : (
+                        <div className="px-5 py-8 text-center text-gray-400 text-sm">Waiting for player to submit their deck…</div>
+                      )}
+                    </div>
+                  )
+                }
+                if (slot.kind === 'guest') {
+                  return (
+                    <div key={`g-${slot.deck.id}`} className="bg-white rounded-lg shadow-md overflow-hidden">
+                      <div className="bg-gray-50 border-b px-5 py-3 flex items-center justify-between">
+                        <div className="font-medium text-gray-800">👤 {slot.deck.player_name ?? 'Guest Player'}</div>
+                        <div className="text-sm text-gray-500">{slot.deck.wins}–{slot.deck.losses}</div>
+                      </div>
+                      <DeckCard deck={slot.deck} draftId={eventId} cardMap={cardMap}
+                        onUpdated={() => queryClient.invalidateQueries({ queryKey: ['draft', eventId] })}
+                        userId={user?.id} isCubeOwner={isCubeOwner} isMyDeck={false} />
+                    </div>
+                  )
+                }
+                if (slot.kind === 'empty') {
+                  const isOpen = openEmptySlot === slot.index
+                  return (
+                    <div key={`e-${slot.index}`} className="bg-white rounded-lg shadow-md border-2 border-dashed border-gray-200 overflow-hidden">
+                      <div className="bg-gray-50 border-b px-5 py-3 flex items-center justify-between">
+                        <div className="text-gray-400 font-medium">Open Slot</div>
+                        <button
+                          onClick={() => setOpenEmptySlot(isOpen ? null : slot.index)}
+                          className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-2 py-1"
+                        >
+                          {isOpen ? '✕ Cancel' : '+ Add Deck'}
+                        </button>
+                      </div>
+                      {isOpen ? (
+                        <div className="p-4">
+                          <AddDeckForm draftId={eventId} cubeCards={cubeCards}
+                            onCreated={() => {
+                              queryClient.invalidateQueries({ queryKey: ['draft', eventId] })
+                              setOpenEmptySlot(null)
+                            }} />
+                        </div>
+                      ) : (
+                        <div className="px-5 py-8 text-center text-gray-300 text-sm">Click "+ Add Deck" to enter a player's deck</div>
+                      )}
+                    </div>
+                  )
+                }
+                return null
+              })}
+            </div>
+          ) : (
+            <div className="text-center text-gray-400 py-12 bg-white rounded-lg shadow">
+              No decks logged yet.
+            </div>
+          )
         )}
 
-        {/* deck grid (casual only) */}
-        {draft.event_type !== 'hosted' && (decks.length === 0 ? (
-          <div className="text-center text-gray-400 py-12 bg-white rounded-lg shadow">
-            No decks logged yet. Click <strong>+ Add Deck</strong> to start.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            {decks.map((deck) => (
-              <DeckCard
-                key={deck.id}
-                deck={deck}
-                draftId={eventId}
-                cardMap={cardMap}
-                onUpdated={() => queryClient.invalidateQueries({ queryKey: ['draft', eventId] })}
-              />
-            ))}
-          </div>
-        ))}
+        {/* ── Quick draft feedback (casual) ── */}
+        {draft.event_type !== 'hosted' && (isParticipant || isCubeOwner) && (
+          <PostDraftSection
+            draftId={eventId}
+            userId={user?.id}
+            isCubeOwner={isCubeOwner}
+            draft={draft as unknown as Record<string, unknown>}
+            rounds={[]}
+            cardMap={cardMap}
+          />
+        )}
       </div>
     </Layout>
   )
@@ -475,19 +561,21 @@ function AddDeckForm({
   cubeCards,
   userId,
   defaultPlayerName,
+  lockedPlayerName,
   onCreated,
 }: {
   draftId: number
   cubeCards: CubeCard[]
   userId?: number
   defaultPlayerName?: string
+  lockedPlayerName?: string
   onCreated: () => void
 }) {
   // build card map from cubeCards
   const cardMap = buildCardMap(cubeCards)
 
   // form fields
-  const [playerName, setPlayerName] = useState(defaultPlayerName ?? '')
+  const [playerName, setPlayerName] = useState(lockedPlayerName ?? defaultPlayerName ?? '')
   const [deckName, setDeckName]     = useState('')
   const [wins, setWins]             = useState(0)
   const [losses, setLosses]         = useState(0)
@@ -499,6 +587,8 @@ function AddDeckForm({
   const [poolPreview, setPoolPreview] = useState<string | null>(null)
   const deckFileRef = useRef<HTMLInputElement>(null)
   const poolFileRef = useRef<HTMLInputElement>(null)
+  const [isDragOverDeck, setIsDragOverDeck] = useState(false)
+  const [isDragOverPool, setIsDragOverPool] = useState(false)
 
   // analyze / staged phase
   type Phase = 'input' | 'staged'
@@ -528,7 +618,7 @@ function AddDeckForm({
         losses,
       })
       setCreatedDeckId(deck.id)
-      const result = await draftsApi.analyzePhotos(draftId, deck.id, deckFile!, poolFile!)
+      const result = await draftsApi.analyzePhotos(draftId, deck.id, deckFile!, poolFile)
       return result
     },
     onSuccess: (data) => {
@@ -620,8 +710,12 @@ function AddDeckForm({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Player Name</label>
-          <input value={playerName} onChange={(e) => setPlayerName(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <input
+            value={playerName}
+            onChange={(e) => { if (!lockedPlayerName) setPlayerName(e.target.value) }}
+            readOnly={!!lockedPlayerName}
+            className={`w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${lockedPlayerName ? 'border-gray-200 bg-gray-50 text-gray-500 cursor-default' : 'border-gray-300'}`}
+          />
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Deck Name</label>
@@ -644,12 +738,23 @@ function AddDeckForm({
       {/* photo upload */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          Photos for AI Card Recognition <span className="text-gray-400 font-normal">(optional — upload both to analyse)</span>
+          Photos for AI Card Recognition <span className="text-gray-400 font-normal">(optional — upload deck photo, or both to analyse)</span>
         </label>
         <div className="grid grid-cols-2 gap-3">
           <div
             onClick={() => deckFileRef.current?.click()}
-            className="relative h-28 rounded-lg border-2 border-dashed border-gray-300 cursor-pointer hover:border-indigo-400 hover:bg-indigo-50 transition-colors flex items-center justify-center overflow-hidden"
+            onDragOver={(e) => { e.preventDefault(); setIsDragOverDeck(true) }}
+            onDragEnter={(e) => { e.preventDefault(); setIsDragOverDeck(true) }}
+            onDragLeave={() => setIsDragOverDeck(false)}
+            onDrop={(e) => {
+              e.preventDefault()
+              setIsDragOverDeck(false)
+              const f = e.dataTransfer.files?.[0]
+              if (f && f.type.startsWith('image/')) { setDeckFile(f); setDeckPreview(URL.createObjectURL(f)) }
+            }}
+            className={`relative h-28 rounded-lg border-2 border-dashed cursor-pointer transition-colors flex items-center justify-center overflow-hidden ${
+              isDragOverDeck ? 'border-indigo-500 bg-indigo-100' : 'border-gray-300 hover:border-indigo-400 hover:bg-indigo-50'
+            }`}
           >
             {deckPreview ? (
               <>
@@ -662,13 +767,24 @@ function AddDeckForm({
               <div className="text-center text-gray-400 pointer-events-none">
                 <div className="text-2xl mb-1">🃏</div>
                 <div className="text-xs font-medium">Deck Photo</div>
-                <div className="text-xs">click to upload</div>
+                <div className="text-xs">click or drag to upload</div>
               </div>
             )}
           </div>
           <div
             onClick={() => poolFileRef.current?.click()}
-            className="relative h-28 rounded-lg border-2 border-dashed border-gray-300 cursor-pointer hover:border-indigo-400 hover:bg-indigo-50 transition-colors flex items-center justify-center overflow-hidden"
+            onDragOver={(e) => { e.preventDefault(); setIsDragOverPool(true) }}
+            onDragEnter={(e) => { e.preventDefault(); setIsDragOverPool(true) }}
+            onDragLeave={() => setIsDragOverPool(false)}
+            onDrop={(e) => {
+              e.preventDefault()
+              setIsDragOverPool(false)
+              const f = e.dataTransfer.files?.[0]
+              if (f && f.type.startsWith('image/')) { setPoolFile(f); setPoolPreview(URL.createObjectURL(f)) }
+            }}
+            className={`relative h-28 rounded-lg border-2 border-dashed cursor-pointer transition-colors flex items-center justify-center overflow-hidden ${
+              isDragOverPool ? 'border-indigo-500 bg-indigo-100' : 'border-gray-300 hover:border-indigo-400 hover:bg-indigo-50'
+            }`}
           >
             {poolPreview ? (
               <>
@@ -681,7 +797,7 @@ function AddDeckForm({
               <div className="text-center text-gray-400 pointer-events-none">
                 <div className="text-2xl mb-1">🎴</div>
                 <div className="text-xs font-medium">Full Pool Photo</div>
-                <div className="text-xs">click to upload</div>
+                <div className="text-xs">click or drag to upload</div>
               </div>
             )}
           </div>
@@ -703,10 +819,12 @@ function AddDeckForm({
         />
       </div>
 
-      {/* If both photos uploaded: prompt to analyse */}
-      {deckFile && poolFile && (
+      {/* If deck photo uploaded: prompt to analyse */}
+      {deckFile && (
         <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 flex items-center justify-between gap-3">
-          <p className="text-xs text-indigo-700 font-medium">📷 Both photos ready — click Analyse to identify cards</p>
+          <p className="text-xs text-indigo-700 font-medium">
+            {poolFile ? '📷 Both photos ready — click Analyse to identify cards' : '📷 Deck photo ready — pool photo is optional'}
+          </p>
           <button
             onClick={() => analyzeMutation.mutate()}
             disabled={analyzeMutation.isPending}
@@ -718,7 +836,7 @@ function AddDeckForm({
       )}
 
       {/* manual card picker (shown when not using photos) */}
-      {!(deckFile && poolFile) && (
+      {!deckFile && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
             Select Cards Manually — Deck ({manualDeckIds.length}) · Pool ({manualPoolIds.length})
@@ -753,7 +871,7 @@ function AddDeckForm({
       )}
 
       {/* save without photos */}
-      {!(deckFile && poolFile) && (
+      {!deckFile && (
         <div className="flex justify-end">
           <button
             onClick={() => createMutation.mutate()}
@@ -775,11 +893,17 @@ function DeckCard({
   draftId,
   cardMap,
   onUpdated,
+  userId,
+  isCubeOwner = false,
+  isMyDeck = false,
 }: {
   deck: UserDeck
   draftId: number
   cardMap: Map<number, string>
   onUpdated: () => void
+  userId?: number
+  isCubeOwner?: boolean
+  isMyDeck?: boolean
 }) {
   // sync state with deck prop when deck changes
   const [editing, setEditing]         = useState(false)
@@ -849,6 +973,51 @@ function DeckCard({
   const deleteMutation = useMutation({
     mutationFn: () => draftsApi.deleteDeck(draftId, deck.id),
     onSuccess: onUpdated,
+  })
+
+  // ── per-slot feedback ─────────────────────────────────────────────────────
+  const [fbRating, setFbRating] = useState<number | ''>(5)
+  const [fbThoughts, setFbThoughts] = useState('')
+  const [fbStandout, setFbStandout] = useState('')
+  const [fbUnderperformer, setFbUnderperformer] = useState('')
+  const [fbRecs, setFbRecs] = useState('')
+  const [fbSubmitted, setFbSubmitted] = useState(false)
+
+  const [showOwnerFbForm, setShowOwnerFbForm] = useState(false)
+  const [ownerFbRating, setOwnerFbRating] = useState<number | ''>(5)
+  const [ownerFbThoughts, setOwnerFbThoughts] = useState('')
+  const [ownerFbStandout, setOwnerFbStandout] = useState('')
+  const [ownerFbUnderperformer, setOwnerFbUnderperformer] = useState('')
+  const [ownerFbRecs, setOwnerFbRecs] = useState('')
+  const [ownerFbSaved, setOwnerFbSaved] = useState(false)
+
+  const fbNameToId = new Map<string, number>()
+  cardMap.forEach((name, id) => fbNameToId.set(name.toLowerCase(), id))
+  const parseFbCardNames = (text: string) =>
+    text.split(',').map((s) => s.trim()).filter(Boolean)
+      .map((n) => fbNameToId.get(n.toLowerCase())).filter((id): id is number => id !== undefined)
+
+  const fbMutation = useMutation({
+    mutationFn: () => draftsApi.submitPostDraftFeedback(draftId, {
+      overall_rating: fbRating !== '' ? fbRating : undefined,
+      overall_thoughts: fbThoughts || undefined,
+      standout_card_ids: parseFbCardNames(fbStandout).length ? parseFbCardNames(fbStandout) : undefined,
+      underperformer_card_ids: parseFbCardNames(fbUnderperformer).length ? parseFbCardNames(fbUnderperformer) : undefined,
+      recommendations_for_owner: fbRecs || undefined,
+    }, userId),
+    onSuccess: () => setFbSubmitted(true),
+  })
+
+  const ownerFbMutation = useMutation({
+    mutationFn: () => draftsApi.submitPostDraftFeedback(draftId, {
+      player_name: deck.player_name?.trim() || undefined,
+      overall_rating: ownerFbRating !== '' ? ownerFbRating : undefined,
+      overall_thoughts: ownerFbThoughts || undefined,
+      standout_card_ids: parseFbCardNames(ownerFbStandout).length ? parseFbCardNames(ownerFbStandout) : undefined,
+      underperformer_card_ids: parseFbCardNames(ownerFbUnderperformer).length ? parseFbCardNames(ownerFbUnderperformer) : undefined,
+      recommendations_for_owner: ownerFbRecs || undefined,
+    }),
+    onSuccess: () => setOwnerFbSaved(true),
   })
 
   // ── derived display values ─────────────────────────────────────────────────
@@ -1074,6 +1243,115 @@ function DeckCard({
           className="text-xs text-red-400 hover:text-red-600"
         >Delete</button>
       </div>
+
+      {/* ── player's own feedback ─────────────────────────────────────────── */}
+      {isMyDeck && userId && !fbSubmitted && (
+        <div className="border-t border-purple-200 bg-purple-50 p-4 space-y-3">
+          <div className="font-medium text-sm text-purple-800">✨ Your Post-Draft Feedback</div>
+          <p className="text-xs text-purple-600">Share your thoughts — helps the cube owner improve.</p>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Overall Rating (1–10)</label>
+            <input
+              type="number" min={1} max={10}
+              value={fbRating}
+              onChange={(e) => setFbRating(e.target.value === '' ? '' : parseInt(e.target.value))}
+              className="w-32 px-3 py-1.5 border border-gray-300 rounded text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Overall thoughts</label>
+            <textarea rows={2} value={fbThoughts} onChange={(e) => setFbThoughts(e.target.value)}
+              className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
+              placeholder="How was the draft experience?" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Standout cards (comma-separated names)</label>
+            <input value={fbStandout} onChange={(e) => setFbStandout(e.target.value)}
+              className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
+              placeholder="e.g. Recurring Nightmare, The One Ring" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Underperforming cards</label>
+            <input value={fbUnderperformer} onChange={(e) => setFbUnderperformer(e.target.value)}
+              className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
+              placeholder="Cards that felt weak or unplayable" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Recommendations for the cube owner</label>
+            <textarea rows={2} value={fbRecs} onChange={(e) => setFbRecs(e.target.value)}
+              className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
+              placeholder="What would you add, cut, or change?" />
+          </div>
+          <button
+            onClick={() => fbMutation.mutate()}
+            disabled={fbMutation.isPending}
+            className="bg-purple-600 text-white px-4 py-2 rounded text-sm hover:bg-purple-700 disabled:opacity-50"
+          >{fbMutation.isPending ? 'Submitting…' : 'Submit Feedback'}</button>
+        </div>
+      )}
+      {isMyDeck && fbSubmitted && (
+        <div className="border-t border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+          ✅ Thanks for your feedback!
+        </div>
+      )}
+
+      {/* ── owner entry for this player ───────────────────────────────────── */}
+      {isCubeOwner && !isMyDeck && (
+        <div className="border-t border-amber-200 bg-amber-50 p-4">
+          <button
+            onClick={() => setShowOwnerFbForm((v) => !v)}
+            className="font-medium text-sm text-amber-800 hover:text-amber-900 flex items-center gap-2"
+          >
+            📋 Enter Feedback for {deck.player_name ?? 'Player'}
+            <span className="text-xs text-gray-400">{showOwnerFbForm ? '▲' : '▼'}</span>
+          </button>
+          {showOwnerFbForm && !ownerFbSaved && (
+            <div className="mt-3 space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Overall Rating (1–10)</label>
+                <input
+                  type="number" min={1} max={10}
+                  value={ownerFbRating}
+                  onChange={(e) => setOwnerFbRating(e.target.value === '' ? '' : parseInt(e.target.value))}
+                  className="w-32 px-3 py-1.5 border border-gray-300 rounded text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Overall thoughts</label>
+                <textarea rows={2} value={ownerFbThoughts} onChange={(e) => setOwnerFbThoughts(e.target.value)}
+                  className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
+                  placeholder="How was the draft experience for this player?" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Standout cards (comma-separated names)</label>
+                <input value={ownerFbStandout} onChange={(e) => setOwnerFbStandout(e.target.value)}
+                  className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
+                  placeholder="e.g. Recurring Nightmare, The One Ring" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Underperforming cards</label>
+                <input value={ownerFbUnderperformer} onChange={(e) => setOwnerFbUnderperformer(e.target.value)}
+                  className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
+                  placeholder="Cards that felt weak or unplayable" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Recommendations for the cube owner</label>
+                <textarea rows={2} value={ownerFbRecs} onChange={(e) => setOwnerFbRecs(e.target.value)}
+                  className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
+                  placeholder="What would they add, cut, or change?" />
+              </div>
+              <button
+                onClick={() => ownerFbMutation.mutate()}
+                disabled={ownerFbMutation.isPending}
+                className="bg-amber-600 text-white px-4 py-2 rounded text-sm hover:bg-amber-700 disabled:opacity-50"
+              >{ownerFbMutation.isPending ? 'Saving…' : 'Save Feedback'}</button>
+            </div>
+          )}
+          {ownerFbSaved && (
+            <p className="mt-2 text-sm text-green-700">✅ Feedback saved for {deck.player_name ?? 'Player'}.</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -1284,6 +1562,9 @@ function HostedEventView({
               draftId={draftId}
               cardMap={cardMap}
               onUpdated={() => queryClient.invalidateQueries({ queryKey: ['draft', draftId] })}
+              userId={userId}
+              isCubeOwner={isCubeOwner}
+              isMyDeck={true}
             />
           ) : (
             <div className="p-5">
@@ -1407,12 +1688,37 @@ function HostedEventView({
   // ── Phase: completed ─────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
+      {/* All player deck cards — includes per-slot feedback */}
+      {(decks as UserDeck[]).length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {(decks as UserDeck[]).map((d) => (
+            <div key={d.id} className={`rounded-lg shadow-md overflow-hidden ${d.user_id === userId ? 'border-2 border-indigo-200' : ''}`}>
+              <div className={`px-5 py-3 flex items-center justify-between ${d.user_id === userId ? 'bg-indigo-600 text-white' : 'bg-gray-50 border-b'}`}>
+                <div className={`font-medium ${d.user_id === userId ? 'text-white' : 'text-gray-800'}`}>
+                  {d.user_id === userId ? '🧑‍💻 ' : '👤 '}{d.player_name ?? 'Player'}
+                </div>
+                <div className={`text-sm ${d.user_id === userId ? 'text-indigo-200' : 'text-gray-500'}`}>{d.wins}–{d.losses}</div>
+              </div>
+              <DeckCard
+                deck={d}
+                draftId={draftId}
+                cardMap={cardMap}
+                onUpdated={() => queryClient.invalidateQueries({ queryKey: ['draft', draftId] })}
+                userId={userId}
+                isCubeOwner={isCubeOwner}
+                isMyDeck={d.user_id === userId}
+              />
+            </div>
+          ))}
+        </div>
+      )}
       <PostDraftSection
         draftId={draftId}
         userId={userId}
         isCubeOwner={isCubeOwner}
         draft={draft}
         rounds={rounds}
+        cardMap={cardMap}
       />
     </div>
   )
@@ -1617,7 +1923,6 @@ function PairingCard({
 
 function PostDraftSection({
   draftId,
-  userId,
   isCubeOwner,
   draft,
   rounds,
@@ -1627,28 +1932,14 @@ function PostDraftSection({
   isCubeOwner: boolean
   draft: Record<string, unknown>
   rounds: DraftRound[]
+  cardMap: Map<number, string>
 }) {
-  const [rating, setRating] = useState<number | ''>(5)
-  const [thoughts, setThoughts] = useState('')
-  const [standout, setStandout] = useState('')
-  const [underperformer, setUnderperformer] = useState('')
-  const [recs, setRecs] = useState('')
-  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false)
   const [showOwnerSummary, setShowOwnerSummary] = useState(false)
 
   const { data: summary } = useQuery({
     queryKey: ['fullSummary', draftId],
     queryFn: () => draftsApi.getFullSummary(draftId),
     enabled: showOwnerSummary,
-  })
-
-  const feedbackMutation = useMutation({
-    mutationFn: () => draftsApi.submitPostDraftFeedback(draftId, {
-      overall_rating: rating !== '' ? rating : undefined,
-      overall_thoughts: thoughts || undefined,
-      recommendations_for_owner: recs || undefined,
-    }, userId),
-    onSuccess: () => setFeedbackSubmitted(true),
   })
 
   const decks: {id:number; player_name?:string; wins:number; losses:number}[] = (draft.user_decks as never[]) ?? []
@@ -1692,61 +1983,6 @@ function PostDraftSection({
               </div>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* Post-draft feedback form */}
-      {userId && !feedbackSubmitted && (
-        <div className="bg-purple-50 border border-purple-200 rounded-lg p-5 space-y-3">
-          <h2 className="font-semibold text-purple-800">✨ Post-Draft Feedback</h2>
-          <p className="text-sm text-purple-700">Share your thoughts on the draft — this helps the cube owner improve the cube.</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Overall Rating (1–10)</label>
-              <input
-                type="number" min={1} max={10}
-                value={rating}
-                onChange={(e) => setRating(e.target.value === '' ? '' : parseInt(e.target.value))}
-                className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Overall thoughts</label>
-            <textarea rows={3} value={thoughts} onChange={(e) => setThoughts(e.target.value)}
-              className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
-              placeholder="How was the overall draft experience?" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Standout cards (what shone?)</label>
-            <input value={standout} onChange={(e) => setStandout(e.target.value)}
-              className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
-              placeholder="e.g. Recurring Nightmare, The One Ring" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Underperforming cards</label>
-            <input value={underperformer} onChange={(e) => setUnderperformer(e.target.value)}
-              className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
-              placeholder="Cards that felt weak or unplayable" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Recommendations for the cube owner</label>
-            <textarea rows={2} value={recs} onChange={(e) => setRecs(e.target.value)}
-              className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
-              placeholder="What would you add, cut, or change?" />
-          </div>
-          <button
-            onClick={() => feedbackMutation.mutate()}
-            disabled={feedbackMutation.isPending}
-            className="bg-purple-600 text-white px-5 py-2 rounded text-sm hover:bg-purple-700 disabled:opacity-50"
-          >
-            {feedbackMutation.isPending ? 'Submitting…' : 'Submit Feedback'}
-          </button>
-        </div>
-      )}
-      {feedbackSubmitted && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-700">
-          ✅ Thank you for your feedback!
         </div>
       )}
 

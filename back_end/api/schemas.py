@@ -252,7 +252,8 @@ class RoundFeedbackResponse(BaseModel):
 # Post-Draft Feedback
 class PostDraftFeedbackCreate(BaseModel):
     user_id: Optional[int] = None
-    overall_rating: Optional[int] = Field(None, ge=1, le=5)
+    player_name: Optional[str] = None        # used when organizer submits on behalf of a player
+    overall_rating: Optional[int] = Field(None, ge=1, le=10)
     overall_thoughts: Optional[str] = None
     standout_card_ids: Optional[list[int]] = None
     underperformer_card_ids: Optional[list[int]] = None
@@ -261,7 +262,8 @@ class PostDraftFeedbackCreate(BaseModel):
 class PostDraftFeedbackResponse(BaseModel):
     id: int
     draft_event_id: int
-    user_id: int
+    user_id: Optional[int]
+    player_name: Optional[str]
     overall_rating: Optional[int]
     overall_thoughts: Optional[str]
     standout_card_ids: Optional[list[int]]
