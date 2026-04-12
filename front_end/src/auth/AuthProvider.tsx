@@ -6,12 +6,14 @@ interface AuthContextType {
   login: (user: User, token?: string) => void
   logout: () => void
   isAuthenticated: boolean
+  isLoading: boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
     // Load user from localStorage on mount
@@ -19,6 +21,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (savedUser) {
       setUser(savedUser)
     }
+    setIsLoading(false)
   }, [])
 
   const login = (user: User, token?: string) => {
@@ -35,7 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user }}>
+    <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user, isLoading }}>
       {children}
     </AuthContext.Provider>
   )

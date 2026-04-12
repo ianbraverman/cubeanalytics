@@ -495,6 +495,58 @@ class AIService:
             raise
 
     # ------------------------------------------------------------------
+    # Deck archetype tags
+    # ------------------------------------------------------------------
+    @staticmethod
+    def generate_deck_tags(card_names: list[str]) -> dict:
+        """
+        Return {"archetype": str, "archetype_detail": str} for a deck.
+
+        archetype is one of: aggro, midrange, control, combo, other
+        archetype_detail is a short freeform label, e.g. "red aggro", "aristocrats",
+        "reanimator", "spellslinger", "white weenie", "ramp".
+        Returns empty strings on failure so callers can gracefully skip.
+        """
+        client = _get_client()
+        card_list = "\n".join(card_names) if card_names else "(no cards)"
+        prompt = (
+            "You are a Magic: The Gathering draft analyst.\n"
+            "Given the following main deck card list, classify the deck.\n\n"
+            f"Cards:\n{card_list}\n\n"
+            "Respond with ONLY a JSON object (no markdown, no explanation) in this exact format:\n"
+            '{"archetype": "<aggro|midrange|control|combo|other>", '
+            '"archetype_detail": "<short specific label>"}\n'
+            "The archetype_detail should be 1-3 words like 'red aggro', 'aristocrats', "
+            "'reanimator', 'spellslinger', 'white weenie', 'ramp', 'tempo', etc."
+        )
+        text_model = os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-flash")
+        try:
+            models = getattr(client, "models", None)
+            if models is None and hasattr(client, "Client"):
+                client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+                models = client.models
+
+            response = AIService._generate_content_with_retries(models, text_model, prompt)
+            raw = getattr(response, "text", None) or ""
+            if not raw:
+                cand = getattr(response, "candidates", None)
+                if cand and len(cand) > 0:
+                    parts = getattr(cand[0].content, "parts", [])
+                    raw = "\n".join(p.text for p in parts if hasattr(p, "text") and p.text)
+            raw = raw.strip()
+            # Strip markdown fences if present
+            if raw.startswith("```"):
+                raw = re.sub(r"^```[a-z]*\n?", "", raw).rstrip("`").strip()
+            parsed = json.loads(raw)
+            return {
+                "archetype": str(parsed.get("archetype", "")).lower().strip(),
+                "archetype_detail": str(parsed.get("archetype_detail", "")).lower().strip(),
+            }
+        except Exception:
+            logger.warning("generate_deck_tags failed", exc_info=True)
+            return {"archetype": "", "archetype_detail": ""}
+
+    # ------------------------------------------------------------------
     # Draft narrative summary
     # ------------------------------------------------------------------
     @staticmethod
@@ -581,20 +633,19 @@ class AIService:
 
         # ── Build the master prompt ─────────────────────────────────────
         prompt_parts = [
-            "You are an expert Magic: The Gathering draft analyst and narrator.",
-            "Write a comprehensive, in-depth narrative summary of the following draft.",
-            "Your summary MUST include the following clearly separated sections:\n",
-            "**1. Draft Overview** — A multi-paragraph narrative opening: what cube was drafted, who the players are, the overall tone of the draft, and who came out on top. Talk about the meta strategies that emerged, any notable tensions during the draft (e.g. colour fights, contested archetypes). This section should be 2-4 paragraphs.\n",
-            "**2. Deck Breakdowns** — For EACH player write a dedicated subsection (3-6 paragraphs) covering:",
-            "   - The deck's core archetype and strategic identity",
-            "   - Key cards and why they matter in this deck",
-            "   - Synergies and combos present in the list",
-            "   - Strengths, weaknesses, and how the deck lines up against the field",
-            "   - How the deck performed (based on record and matchup results if available)\n",
-            "**3. Matchup Analysis** — If round data is available, break down each significant matchup: what happened, what each deck needed to win, and what the deciding factors were. If no round data, discuss theoretical matchups based on the archetypes.\n",
-            "**4. Player Feedback & Cube Health** (if feedback is available) — Summarise what players thought of the cube, standout cards, and anything the cube owner should consider.\n",
-            "**5. Closing Thoughts** — A closing paragraph reflecting on the draft as a whole: what made it memorable, what it says about the cube's design, and any outstanding storylines.\n",
-            "Be specific — reference actual card names, actual game results, and use the players' real names throughout. Write in an engaging, analytical style like a tournament coverage article.\n",
+            "You are a friendly Magic: The Gathering draft analyst writing a summary for a group of friends who drafted together.",
+            "Write a clear, honest, conversational summary of the following draft. Keep the tone casual and direct — like you're recapping it for the players themselves, not writing tournament coverage.",
+            "Your summary should include the following sections:\n",
+            "**1. Draft Overview** — A quick intro: what cube was drafted, who played, and who came out on top. Mention any notable patterns in what colors or strategies got drafted. 1-2 paragraphs.\n",
+            "**2. Deck Breakdowns** — For EACH player write a short section covering:",
+            "   - What the deck was trying to do",
+            "   - A few standout cards",
+            "   - How it performed",
+            "   Keep each player section to 2-3 paragraphs.\n",
+            "**3. Matchup Recap** — If round data is available, briefly describe what happened in the notable matches. If not, touch on how the decks would have matched up.\n",
+            "**4. Player Feedback & Cube Notes** (if feedback is available) — Summarise what players thought. What cards impressed people? What felt weak? Any suggestions worth flagging for the cube owner.\n",
+            "**5. Final Thoughts** — One short closing paragraph on how the draft went overall.\n",
+            "Use the players' real names. Reference actual card names. Be specific but keep it readable — no need to be exhaustive.\n",
             "---",
             f"Draft: {draft_name or 'Unnamed Draft'}",
             f"Cube: {cube_name or 'Unknown Cube'}\n",

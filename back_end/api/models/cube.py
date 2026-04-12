@@ -19,6 +19,7 @@ class Cube(Base):
     pack_size = Column(Integer, default=15, nullable=False)           # cards per pack
     draft_rules = Column(Text, nullable=True)                        # freeform draft rules / notes
     gameplay_rules = Column(Text, nullable=True)                     # freeform gameplay rules / notes
+    cubecobra_link = Column(String, nullable=True)                   # optional CubeCobra page URL
 
     # Relationships
     owner = relationship("User", back_populates="cubes")

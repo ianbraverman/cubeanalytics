@@ -798,6 +798,41 @@ async def submit_match_result(
     if submitting and not is_p1 and not is_p2:
         raise HTTPException(status_code=403, detail="You are not a player in this pairing")
 
+    # Capture existing values before any overwrite so we can detect conflicts
+    existing_p1_wins = pairing.player1_wins
+    existing_p2_wins = pairing.player2_wins
+
+    # Conflict detection: if the other player already confirmed, check whether
+    # this submission matches what was stored. If not, reset both.
+    if is_p2 and pairing.player1_confirmed == "yes":
+        if body.player1_wins != existing_p1_wins or body.player2_wins != existing_p2_wins:
+            pairing.player1_confirmed = "no"
+            pairing.player2_confirmed = "no"
+            db.commit()
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Result conflict: your opponent submitted "
+                    f"{existing_p1_wins}–{existing_p2_wins} but you submitted "
+                    f"{body.player1_wins}–{body.player2_wins}. "
+                    "Both players must re-submit agreeing results."
+                ),
+            )
+    if is_p1 and pairing.player2_confirmed == "yes":
+        if body.player1_wins != existing_p1_wins or body.player2_wins != existing_p2_wins:
+            pairing.player1_confirmed = "no"
+            pairing.player2_confirmed = "no"
+            db.commit()
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Result conflict: your opponent submitted "
+                    f"{existing_p1_wins}–{existing_p2_wins} but you submitted "
+                    f"{body.player1_wins}–{body.player2_wins}. "
+                    "Both players must re-submit agreeing results."
+                ),
+            )
+
     pairing.player1_wins = body.player1_wins
     pairing.player2_wins = body.player2_wins
 
@@ -952,6 +987,8 @@ async def submit_post_draft_feedback(
     fb.standout_card_ids = json.dumps(body.standout_card_ids or [])
     fb.underperformer_card_ids = json.dumps(body.underperformer_card_ids or [])
     fb.recommendations_for_owner = body.recommendations_for_owner
+    fb.cards_to_add = body.cards_to_add
+    fb.cards_to_cut = body.cards_to_cut
     if resolved_player_name:
         fb.player_name = resolved_player_name
     if not existing:
@@ -989,6 +1026,8 @@ def _post_draft_fb_response(f: PostDraftFeedback) -> dict:
         "standout_card_ids": _load(f.standout_card_ids),
         "underperformer_card_ids": _load(f.underperformer_card_ids),
         "recommendations_for_owner": f.recommendations_for_owner,
+        "cards_to_add": f.cards_to_add,
+        "cards_to_cut": f.cards_to_cut,
         "created_at": f.created_at,
     }
 

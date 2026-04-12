@@ -6,9 +6,9 @@ from .draft_event_service import DraftEventService
 from .user_deck_service import UserDeckService
 from .feedback_service import FeedbackService
 from .card_feedback_service import CardFeedbackService
-from .vector_service import VectorService
 from .scryfall_service import ScryfallService
 from .ai_service import AIService
+from .cube_stats_service import CubeStatsService
 
 __all__ = [
     "UserService",
@@ -19,6 +19,7 @@ __all__ = [
     "UserDeckService",
     "FeedbackService",
     "CardFeedbackService",
-    "VectorService",
-    "ScryfallService"
+    "ScryfallService",
+    "AIService",
+    "CubeStatsService",
 ]

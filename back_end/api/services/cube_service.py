@@ -11,6 +11,7 @@ class CubeService:
         db_cube = Cube(
             name=cube.name,
             description=cube.description,
+            cubecobra_link=cube.cubecobra_link,
             owner_id=owner_id
         )
         db.add(db_cube)
@@ -40,6 +41,7 @@ class CubeService:
         if db_cube:
             db_cube.name = cube_update.name
             db_cube.description = cube_update.description
+            db_cube.cubecobra_link = cube_update.cubecobra_link
             db.commit()
             db.refresh(db_cube)
         return db_cube

@@ -14,6 +14,8 @@ import DraftsPage from '../pages/drafts/DraftsPage'
 import DraftDetailPage from '../pages/drafts/DraftDetailPage'
 import JoinDraftPage from '../pages/drafts/JoinDraftPage'
 import MyDraftsPage from '../pages/drafts/MyDraftsPage'
+import ProfilePage from '../pages/profile/ProfilePage'
+import AboutPage from '../pages/AboutPage'
 
 function AppRoutes() {
   return (
@@ -96,6 +98,26 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+
+      <Route
+        path="/profile"
+        element={
+          <ProtectedRoute>
+            <ProfilePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/players/:userId"
+        element={
+          <ProtectedRoute>
+            <ProfilePage />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Public */}
+      <Route path="/about" element={<AboutPage />} />
 
       {/* Catch all */}
       <Route path="*" element={<Navigate to="/" replace />} />

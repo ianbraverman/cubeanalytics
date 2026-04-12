@@ -23,6 +23,7 @@ export default function CreateCubePage() {
   const queryClient = useQueryClient()
   const [error, setError] = useState<string>('')
   const [isProcessing, setIsProcessing] = useState(false)
+  const [cubecobraLink, setCubecobraLink] = useState('')
 
   const {
     register,
@@ -33,7 +34,7 @@ export default function CreateCubePage() {
   })
 
   const createCubeMutation = useMutation({
-    mutationFn: (data: { name: string; description?: string }) =>
+    mutationFn: (data: { name: string; description?: string; cubecobra_link?: string }) =>
       cubesApi.createCube(data, user!.id),
     onError: (error: any) => {
       setError(error.response?.data?.detail || 'Failed to create cube')
@@ -62,6 +63,7 @@ export default function CreateCubePage() {
       const cube = await createCubeMutation.mutateAsync({
         name: data.name,
         description: data.description,
+        cubecobra_link: cubecobraLink.trim() || undefined,
       })
 
       // Bulk-fetch all cards from Scryfall and store them in the DB
@@ -142,6 +144,21 @@ export default function CreateCubePage() {
               {errors.description && (
                 <p className="text-red-500 text-sm mt-1">{errors.description.message}</p>
               )}
+            </div>
+
+            <div>
+              <label htmlFor="cubecobraLink" className="block text-sm font-medium text-gray-700 mb-1">
+                CubeCobra Link (optional)
+              </label>
+              <input
+                type="url"
+                id="cubecobraLink"
+                value={cubecobraLink}
+                onChange={(e) => setCubecobraLink(e.target.value)}
+                placeholder="https://cubecobra.com/cube/overview/..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-gray-500 text-sm mt-1">Link your cube's CubeCobra page if you have one.</p>
             </div>
 
             <div>

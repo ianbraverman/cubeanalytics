@@ -4,7 +4,7 @@ from datetime import datetime
 
 # User Schemas
 class UserBase(BaseModel):
-    email: EmailStr
+    email: str
     username: str = Field(..., min_length=3, max_length=50)
 
 class UserCreate(UserBase):
@@ -18,7 +18,7 @@ class UserResponse(UserBase):
         from_attributes = True
 
 class UserLogin(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 # Card Schemas
@@ -90,6 +90,7 @@ class CubeResponse(CubeBase):
     pack_size: int = 15
     draft_rules: Optional[str] = None
     gameplay_rules: Optional[str] = None
+    cubecobra_link: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -156,6 +157,9 @@ class UserDeckCreate(BaseModel):
     wins: Optional[int] = 0
     losses: Optional[int] = 0
     record: Optional[str] = None
+    archetype: Optional[str] = None
+    archetype_detail: Optional[str] = None
+    color_identity: Optional[str] = None
 
 class UserDeckUpdate(BaseModel):
     player_name: Optional[str] = None
@@ -169,6 +173,9 @@ class UserDeckUpdate(BaseModel):
     deck_photo_url: Optional[str] = None
     pool_photo_url: Optional[str] = None
     ai_description: Optional[str] = None
+    archetype: Optional[str] = None
+    archetype_detail: Optional[str] = None
+    color_identity: Optional[str] = None
 
 class UserDeckResponse(BaseModel):
     id: int
@@ -185,6 +192,9 @@ class UserDeckResponse(BaseModel):
     deck_photo_url: Optional[str] = None
     pool_photo_url: Optional[str] = None
     ai_description: Optional[str] = None
+    archetype: Optional[str] = None
+    archetype_detail: Optional[str] = None
+    color_identity: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -231,7 +241,7 @@ class DraftRoundResponse(BaseModel):
 
 # Round Feedback
 class RoundFeedbackCreate(BaseModel):
-    user_id: int
+    user_id: Optional[int] = None
     liked_card_ids: Optional[list[int]] = None
     disliked_card_ids: Optional[list[int]] = None
     liked_notes: Optional[str] = None
@@ -258,6 +268,8 @@ class PostDraftFeedbackCreate(BaseModel):
     standout_card_ids: Optional[list[int]] = None
     underperformer_card_ids: Optional[list[int]] = None
     recommendations_for_owner: Optional[str] = None
+    cards_to_add: Optional[str] = None
+    cards_to_cut: Optional[str] = None
 
 class PostDraftFeedbackResponse(BaseModel):
     id: int
@@ -269,6 +281,8 @@ class PostDraftFeedbackResponse(BaseModel):
     standout_card_ids: Optional[list[int]]
     underperformer_card_ids: Optional[list[int]]
     recommendations_for_owner: Optional[str]
+    cards_to_add: Optional[str]
+    cards_to_cut: Optional[str]
     created_at: datetime
 
 # Feedback Schema
@@ -311,7 +325,7 @@ class CardFeedbackResponse(CardFeedbackBase):
 
 # User Schemas
 class UserBase(BaseModel):
-    email: EmailStr
+    email: str
     username: str = Field(..., min_length=3, max_length=50)
 
 class UserCreate(UserBase):
@@ -325,7 +339,7 @@ class UserResponse(UserBase):
         from_attributes = True
 
 class UserLogin(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 # Card Schemas
@@ -385,6 +399,7 @@ class CubeResponse(CubeBase):
     owner_id: int
     created_at: datetime
     updated_at: datetime
+    cubecobra_link: Optional[str] = None
 
     class Config:
         from_attributes = True

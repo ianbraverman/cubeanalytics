@@ -18,6 +18,8 @@ class PostDraftFeedback(Base):
     standout_card_ids = Column(Text, nullable=True)               # cards that stood out
     underperformer_card_ids = Column(Text, nullable=True)         # cards that disappointed
     recommendations_for_owner = Column(Text, nullable=True)       # cut/add suggestions
+    cards_to_add = Column(Text, nullable=True)                    # specific card names to add
+    cards_to_cut = Column(Text, nullable=True)                    # specific card names to cut
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships

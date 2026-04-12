@@ -5,6 +5,7 @@ import { cubesApi } from '../../api/cubes'
 import { cardsApi } from '../../api/cards'
 import Layout from '../../components/Layout'
 import { useAuth } from '../../auth/AuthProvider'
+import CubeStatsPanel from './CubeStatsPanel'
 
 export default function CubeDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -15,6 +16,7 @@ export default function CubeDetailPage() {
   const { user } = useAuth()
   const [isAddingCards, setIsAddingCards] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [activeTab, setActiveTab] = useState<'cards' | 'stats'>('cards')
   const [settingsLifeTotal, setSettingsLifeTotal] = useState(20)
   const [settingsPackCount, setSettingsPackCount] = useState(3)
   const [settingsPackSize, setSettingsPackSize] = useState(15)
@@ -90,6 +92,11 @@ export default function CubeDetailPage() {
     }
   }, [cube?.id])
 
+  const [isEditingInfo, setIsEditingInfo] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editDescription, setEditDescription] = useState('')
+  const [editCubecobraLink, setEditCubecobraLink] = useState('')
+
   const updateSettingsMutation = useMutation({
     mutationFn: () =>
       cubesApi.updateCubeSettings(cubeId, {
@@ -109,6 +116,19 @@ export default function CubeDetailPage() {
     mutationFn: () => cubesApi.deleteCube(cubeId),
     onSuccess: () => {
       navigate('/cubes')
+    },
+  })
+
+  const updateInfoMutation = useMutation({
+    mutationFn: () =>
+      cubesApi.updateCube(cubeId, {
+        name: editName,
+        description: editDescription || undefined,
+        cubecobra_link: editCubecobraLink || undefined,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['cube', cubeId] })
+      setIsEditingInfo(false)
     },
   })
 
@@ -412,15 +432,87 @@ export default function CubeDetailPage() {
           </div>
         )}
 
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-start mb-8 flex-wrap gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">{cube.name}</h1>
-            {cube.description && <p className="text-gray-600 mt-2">{cube.description}</p>}
-            <p className="text-sm text-gray-500 mt-1">
-              Total cards: {cubeSize?.total_cards || 0}
-            </p>
+            {!isEditingInfo ? (
+              <>
+                <h1 className="text-3xl font-bold text-gray-900">{cube.name}</h1>
+                {cube.description && <p className="text-gray-600 mt-2">{cube.description}</p>}
+                {cube.cubecobra_link && (
+                  <a
+                    href={cube.cubecobra_link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-indigo-600 hover:text-indigo-800 hover:underline mt-1 inline-flex items-center gap-1"
+                  >
+                    🔗 CubeCobra page
+                  </a>
+                )}
+                <p className="text-sm text-gray-500 mt-1">
+                  Total cards: {cubeSize?.total_cards || 0}
+                </p>
+                {isOwner && (
+                  <button
+                    onClick={() => {
+                      setEditName(cube.name)
+                      setEditDescription(cube.description ?? '')
+                      setEditCubecobraLink(cube.cubecobra_link ?? '')
+                      setIsEditingInfo(true)
+                    }}
+                    className="mt-2 text-sm text-gray-500 hover:text-gray-700 underline"
+                  >
+                    ✏️ Edit cube info
+                  </button>
+                )}
+              </>
+            ) : (
+              <div className="space-y-3 w-80">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Cube Name</label>
+                  <input
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
+                  <textarea
+                    rows={3}
+                    value={editDescription}
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    placeholder="Describe your cube..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">CubeCobra Link (optional)</label>
+                  <input
+                    value={editCubecobraLink}
+                    onChange={(e) => setEditCubecobraLink(e.target.value)}
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    placeholder="https://cubecobra.com/cube/overview/..."
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => updateInfoMutation.mutate()}
+                    disabled={!editName.trim() || updateInfoMutation.isPending}
+                    className="bg-indigo-600 text-white px-4 py-1.5 rounded text-sm hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                    {updateInfoMutation.isPending ? 'Saving…' : 'Save'}
+                  </button>
+                  <button
+                    onClick={() => setIsEditingInfo(false)}
+                    className="text-sm text-gray-500 hover:text-gray-700"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-          <div className="flex space-x-2">
+          <div className="flex space-x-2 flex-wrap gap-2">
             <Link
               to={`/cubes/${cubeId}/drafts`}
               className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700"
@@ -717,9 +809,35 @@ export default function CubeDetailPage() {
           </div>
         )}
 
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-bold mb-4">Cards in Cube</h2>
-          {cardsLoading ? (
+        <div className="bg-white rounded-lg shadow-md">
+          {/* ── Tab bar ── */}
+          <div className="flex border-b border-gray-200">
+            <button
+              onClick={() => setActiveTab('cards')}
+              className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'cards'
+                  ? 'border-indigo-600 text-indigo-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Card List
+            </button>
+            <button
+              onClick={() => setActiveTab('stats')}
+              className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'stats'
+                  ? 'border-indigo-600 text-indigo-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              📊 Statistics
+            </button>
+          </div>
+
+          <div className="p-6">
+          {activeTab === 'stats' ? (
+            <CubeStatsPanel cubeId={cubeId} />
+          ) : cardsLoading ? (
             <p className="text-gray-600">Loading cards...</p>
           ) : cubeCards && cubeCards.length > 0 ? (() => {
             const { byType, byCombo } = organizeCards(cubeCards.filter((c) => c.card))
@@ -734,7 +852,7 @@ export default function CubeDetailPage() {
                 onMouseLeave={handleCardMouseLeave}
               >
                 <Link
-                  to={`/cards/${cubeCard.card_id}`}
+                  to={`/cards/${cubeCard.card_id}?cubeId=${cubeId}`}
                   className="text-xs text-blue-700 hover:text-blue-900 hover:underline truncate flex-1 leading-tight"
                 >
                   {cubeCard.card?.name}
@@ -836,6 +954,7 @@ export default function CubeDetailPage() {
               No cards in this cube yet. Click "Add Cards" to get started.
             </p>
           )}
+          </div>{/* end p-6 inner wrapper */}
         </div>
       </div>
 

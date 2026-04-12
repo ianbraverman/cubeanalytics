@@ -13,6 +13,7 @@ export interface Cube {
   pack_size: number
   draft_rules?: string
   gameplay_rules?: string
+  cubecobra_link?: string
 }
 
 export interface CubeCard {
@@ -41,7 +42,7 @@ export interface CubeCard {
 }
 
 export const cubesApi = {
-  createCube: async (data: { name: string; description?: string }, ownerId: number) => {
+  createCube: async (data: { name: string; description?: string; cubecobra_link?: string }, ownerId: number) => {
     const response = await apiClient.post<Cube>('/cubes/', data, {
       params: { owner_id: ownerId },
     })
@@ -63,7 +64,7 @@ export const cubesApi = {
     return response.data
   },
 
-  updateCube: async (cubeId: number, data: { name: string; description?: string }) => {
+  updateCube: async (cubeId: number, data: { name: string; description?: string; cubecobra_link?: string }) => {
     const response = await apiClient.put<Cube>(`/cubes/${cubeId}`, data)
     return response.data
   },

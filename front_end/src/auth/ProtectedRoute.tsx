@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './AuthProvider'
 
 interface ProtectedRouteProps {
@@ -6,10 +6,16 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, isLoading } = useAuth()
+  const location = useLocation()
+
+  // Wait for localStorage auth check before deciding to redirect
+  if (isLoading) {
+    return null
+  }
 
   if (!isAuthenticated) {
-    return <Navigate to="/auth/login" replace />
+    return <Navigate to="/auth/login" state={{ from: location.pathname }} replace />
   }
 
   return <>{children}</>

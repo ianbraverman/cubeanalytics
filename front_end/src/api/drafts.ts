@@ -106,6 +106,8 @@ export interface PostDraftFeedback {
   standout_card_ids: number[]
   underperformer_card_ids: number[]
   recommendations_for_owner?: string
+  cards_to_add?: string
+  cards_to_cut?: string
   created_at: string
 }
 
@@ -270,8 +272,9 @@ export const draftsApi = {
       disliked_notes?: string
       general_thoughts?: string
     },
+    userId?: number,
   ): Promise<RoundFeedback> =>
-    apiClient.post(`/draft-events/${draftId}/pairings/${pairingId}/feedback`, payload).then((r) => r.data),
+    apiClient.post(`/draft-events/${draftId}/pairings/${pairingId}/feedback`, { ...payload, user_id: userId }).then((r) => r.data),
 
   getRoundFeedback: (draftId: number, pairingId: number): Promise<RoundFeedback[]> =>
     apiClient.get(`/draft-events/${draftId}/pairings/${pairingId}/feedback`).then((r) => r.data),
@@ -285,6 +288,8 @@ export const draftsApi = {
       standout_card_ids?: number[]
       underperformer_card_ids?: number[]
       recommendations_for_owner?: string
+      cards_to_add?: string
+      cards_to_cut?: string
     },
     userId?: number,
   ): Promise<PostDraftFeedback> => {

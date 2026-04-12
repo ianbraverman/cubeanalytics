@@ -20,6 +20,9 @@ class UserDeck(Base):
     deck_photo_url = Column(String(500), nullable=True)     # URL/path to deck photo
     pool_photo_url = Column(String(500), nullable=True)     # URL/path to full-pool photo
     ai_description = Column(Text, nullable=True)            # AI deck summary
+    archetype = Column(String(30), nullable=True)           # aggro|midrange|control|combo|other
+    archetype_detail = Column(String(100), nullable=True)   # e.g. "red aggro", "aristocrats"
+    color_identity = Column(String(10), nullable=True)      # e.g. "WR", "UB", "WUBRG", "C"
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships

@@ -981,6 +981,8 @@ function DeckCard({
   const [fbStandout, setFbStandout] = useState('')
   const [fbUnderperformer, setFbUnderperformer] = useState('')
   const [fbRecs, setFbRecs] = useState('')
+  const [fbCardsToAdd, setFbCardsToAdd] = useState('')
+  const [fbCardsToCut, setFbCardsToCut] = useState('')
   const [fbSubmitted, setFbSubmitted] = useState(false)
 
   const [showOwnerFbForm, setShowOwnerFbForm] = useState(false)
@@ -989,6 +991,8 @@ function DeckCard({
   const [ownerFbStandout, setOwnerFbStandout] = useState('')
   const [ownerFbUnderperformer, setOwnerFbUnderperformer] = useState('')
   const [ownerFbRecs, setOwnerFbRecs] = useState('')
+  const [ownerFbCardsToAdd, setOwnerFbCardsToAdd] = useState('')
+  const [ownerFbCardsToCut, setOwnerFbCardsToCut] = useState('')
   const [ownerFbSaved, setOwnerFbSaved] = useState(false)
 
   const fbNameToId = new Map<string, number>()
@@ -1004,6 +1008,8 @@ function DeckCard({
       standout_card_ids: parseFbCardNames(fbStandout).length ? parseFbCardNames(fbStandout) : undefined,
       underperformer_card_ids: parseFbCardNames(fbUnderperformer).length ? parseFbCardNames(fbUnderperformer) : undefined,
       recommendations_for_owner: fbRecs || undefined,
+      cards_to_add: fbCardsToAdd || undefined,
+      cards_to_cut: fbCardsToCut || undefined,
     }, userId),
     onSuccess: () => setFbSubmitted(true),
   })
@@ -1016,6 +1022,8 @@ function DeckCard({
       standout_card_ids: parseFbCardNames(ownerFbStandout).length ? parseFbCardNames(ownerFbStandout) : undefined,
       underperformer_card_ids: parseFbCardNames(ownerFbUnderperformer).length ? parseFbCardNames(ownerFbUnderperformer) : undefined,
       recommendations_for_owner: ownerFbRecs || undefined,
+      cards_to_add: ownerFbCardsToAdd || undefined,
+      cards_to_cut: ownerFbCardsToCut || undefined,
     }),
     onSuccess: () => setOwnerFbSaved(true),
   })
@@ -1277,6 +1285,18 @@ function DeckCard({
               placeholder="Cards that felt weak or unplayable" />
           </div>
           <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Cards you'd recommend adding to the cube</label>
+            <input value={fbCardsToAdd} onChange={(e) => setFbCardsToAdd(e.target.value)}
+              className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
+              placeholder="e.g. Mana Drain, Snapcaster Mage" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Cards you'd recommend cutting from the cube</label>
+            <input value={fbCardsToCut} onChange={(e) => setFbCardsToCut(e.target.value)}
+              className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
+              placeholder="e.g. Armageddon, Stasis" />
+          </div>
+          <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Recommendations for the cube owner</label>
             <textarea rows={2} value={fbRecs} onChange={(e) => setFbRecs(e.target.value)}
               className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
@@ -1333,6 +1353,18 @@ function DeckCard({
                 <input value={ownerFbUnderperformer} onChange={(e) => setOwnerFbUnderperformer(e.target.value)}
                   className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
                   placeholder="Cards that felt weak or unplayable" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Cards to recommend adding to the cube</label>
+                <input value={ownerFbCardsToAdd} onChange={(e) => setOwnerFbCardsToAdd(e.target.value)}
+                  className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
+                  placeholder="e.g. Mana Drain, Snapcaster Mage" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Cards to recommend cutting from the cube</label>
+                <input value={ownerFbCardsToCut} onChange={(e) => setOwnerFbCardsToCut(e.target.value)}
+                  className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
+                  placeholder="e.g. Armageddon, Stasis" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Recommendations for the cube owner</label>
@@ -1766,6 +1798,8 @@ function PairingCard({
   const [fbLikedNotes, setFbLikedNotes] = useState('')
   const [fbDislikedNotes, setFbDislikedNotes] = useState('')
 
+  const [conflictMsg, setConflictMsg] = useState<string | null>(null)
+
   const isBye = !pairing.player2_user_id
   const isMyPairing = pairing.player1_user_id === userId || pairing.player2_user_id === userId
   const imPlayer1 = pairing.player1_user_id === userId
@@ -1775,7 +1809,13 @@ function PairingCard({
       player1_wins: imPlayer1 ? myWins : oppWins,
       player2_wins: imPlayer1 ? oppWins : myWins,
     }, userId),
-    onSuccess: onUpdated,
+    onSuccess: () => { setConflictMsg(null); onUpdated() },
+    onError: (err: any) => {
+      const detail = err?.response?.data?.detail
+      if (err?.response?.status === 409 && detail) {
+        setConflictMsg(detail)
+      }
+    },
   })
 
   const feedbackMutation = useMutation({
@@ -1783,7 +1823,7 @@ function PairingCard({
       liked_notes: fbLikedNotes || undefined,
       disliked_notes: fbDislikedNotes || undefined,
       general_thoughts: fbGeneral || undefined,
-    }),
+    }, userId),
     onSuccess: () => setShowFeedback(false),
   })
 
@@ -1859,6 +1899,11 @@ function PairingCard({
                 Opponent: {oppConfirmed === 'yes' ? '✓ confirmed' : 'not submitted'}
               </span>
             </div>
+            {conflictMsg && (
+              <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+                ⚠️ {conflictMsg}
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -1,0 +1,14 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.env.*
+chroma_data/
+uploads/
+*.db
+*.sqlite3
+testingphotos/
+seed_demo.py
+migrate_*.py

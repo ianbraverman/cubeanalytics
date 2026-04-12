@@ -7,18 +7,18 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from api.endpoints import auth, cubes, cards, card_feedback, cube_cards, draft_events, decks, feedback
-from database import Base, engine
-
-# Create database tables
-Base.metadata.create_all(bind=engine)
+from api.endpoints import auth, cubes, cards, card_feedback, cube_cards, draft_events, decks, feedback, statistics
+from database import engine
 
 app = FastAPI(title="Cube Foundry API")
 
 # Add CORS middleware
+_allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+_allowed_origins = [o.strip() for o in _allowed_origins_env.split(",")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -33,6 +33,7 @@ app.include_router(cube_cards.router, prefix="/cube-cards", tags=["Cube Cards"])
 app.include_router(draft_events.router, prefix="/draft-events", tags=["Draft Events"])
 app.include_router(decks.router, prefix="/decks", tags=["Decks"])
 app.include_router(feedback.router, prefix="/feedback", tags=["Feedback"])
+app.include_router(statistics.router, prefix="/statistics", tags=["Statistics"])
 
 # Serve uploaded deck photos
 uploads_dir = os.path.join(os.path.dirname(__file__), "uploads")

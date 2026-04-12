@@ -1,8 +1,6 @@
 from sqlalchemy.orm import Session
 from api.models import CardFeedback, Card
 from api.schemas import CardFeedbackCreate
-from api.services.vector_service import VectorService
-
 class CardFeedbackService:
     """Service class for card feedback operations."""
 
@@ -29,22 +27,6 @@ class CardFeedbackService:
         db.add(db_feedback)
         db.commit()
         db.refresh(db_feedback)
-        
-        # Vectorize the feedback in Chroma DB
-        if card:
-            vector_id = VectorService.add_feedback_vector(
-                feedback_id=db_feedback.id,
-                card_name=card.name,
-                feedback_text=feedback.comment,
-                feedback_type=feedback.feedback_type,
-                rating=feedback.rating,
-                user_id=user_id
-            )
-            
-            # Update the feedback record with the vector ID
-            db_feedback.vector_id = vector_id
-            db.commit()
-        
         return db_feedback
 
     @staticmethod
@@ -100,29 +82,11 @@ class CardFeedbackService:
         db_feedback = CardFeedbackService.get_card_feedback_by_id(db, feedback_id)
         
         if db_feedback:
-            # Delete from vector database
-            if db_feedback.vector_id:
-                VectorService.delete_feedback_vector(feedback_id)
-            
-            # Delete from SQL database
             db.delete(db_feedback)
             db.commit()
             return True
         
         return False
-
-    @staticmethod
-    def query_similar_cards(
-        query_text: str,
-        feedback_type: str | None = None,
-        n_results: int = 5
-    ) -> dict:
-        """Query for similar card feedback using vector similarity."""
-        return VectorService.query_similar_feedback(
-            query_text=query_text,
-            feedback_type=feedback_type,
-            n_results=n_results
-        )
 
     @staticmethod
     def get_card_feedback_summary(db: Session, card_id: int) -> dict:

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -17,6 +17,7 @@ type LoginFormData = z.infer<typeof loginSchema>
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { login } = useAuth()
   const [error, setError] = useState<string>('')
 
@@ -32,10 +33,16 @@ export default function LoginPage() {
     mutationFn: (data: LoginData) => authApi.login(data),
     onSuccess: (user) => {
       login(user)
-      navigate('/dashboard')
+      const from = (location.state as { from?: string })?.from ?? '/dashboard'
+      navigate(from, { replace: true })
     },
     onError: (error: any) => {
-      setError(error.response?.data?.detail || 'Login failed')
+      const detail = error.response?.data?.detail
+      if (Array.isArray(detail)) {
+        setError(detail.map((e: any) => e.msg).join(', '))
+      } else {
+        setError(detail || 'Login failed')
+      }
     },
   })
 

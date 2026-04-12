@@ -2,17 +2,44 @@
 .env
 .env.*
 !.env.example
+back_end/.env
+back_end/.env.*
+!back_end/.env.example
 
 # Python
 back_end/venv/
 back_end/__pycache__/
 back_end/**/__pycache__/
+**/__pycache__/
 back_end/*.pyc
+**/*.pyc
+back_end/*.pyo
+back_end/.pytest_cache/
 back_end/chroma_data/
 
 # Node
 front_end/node_modules/
 front_end/dist/
+front_end/dist-ssr/
 
-# Uploads
-back_end/uploads/
+# Uploads — keep folder structure, ignore actual files
+back_end/uploads/deck_photos/*
+!back_end/uploads/deck_photos/.gitkeep
+
+# Test / scratch photos
+testingphotos/
+
+# Firebase
+firebase-debug.log
+.firebase/
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.suo
+*.sw?

@@ -1,8 +1,11 @@
 import json
 from typing import Optional
 from sqlalchemy.orm import Session
-from api.models import UserDeck
+from api.models import UserDeck, Card
 from api.schemas import UserDeckCreate, UserDeckUpdate
+
+_COLOR_ORDER = "WUBRG"
+
 
 class UserDeckService:
     """Service class for user deck-related operations."""
@@ -21,10 +24,28 @@ class UserDeckService:
         except Exception:
             return []
 
+    @staticmethod
+    def compute_color_identity(db: Session, card_ids: list[int]) -> str:
+        """Return a WUBRG-ordered color string for the given card IDs (e.g. 'WR', 'UB', 'C')."""
+        if not card_ids:
+            return "C"
+        cards = db.query(Card.colors).filter(Card.id.in_(card_ids)).all()
+        seen: set[str] = set()
+        for (colors,) in cards:
+            if colors:
+                for c in colors:
+                    upper = c.upper()
+                    if upper in _COLOR_ORDER:
+                        seen.add(upper)
+        return "".join(c for c in _COLOR_ORDER if c in seen) or "C"
+
     # ------------------------------------------------------------------ CRUD
     @staticmethod
     def create_user_deck(db: Session, deck: UserDeckCreate, user_id: Optional[int]) -> UserDeck:
         record = deck.record or f"{deck.wins or 0}-{deck.losses or 0}"
+        color_identity = deck.color_identity
+        if color_identity is None and deck.deck_cards:
+            color_identity = UserDeckService.compute_color_identity(db, deck.deck_cards)
         db_deck = UserDeck(
             user_id=user_id,
             draft_event_id=deck.draft_event_id,
@@ -36,6 +57,9 @@ class UserDeckService:
             wins=deck.wins or 0,
             losses=deck.losses or 0,
             record=record,
+            archetype=deck.archetype,
+            archetype_detail=deck.archetype_detail,
+            color_identity=color_identity,
         )
         db.add(db_deck)
         db.commit()
@@ -55,6 +79,11 @@ class UserDeckService:
             setattr(deck, field, value)
         # auto-sync record from wins/losses
         deck.record = f"{deck.wins or 0}-{deck.losses or 0}"
+        # recompute color_identity if deck_cards changed and color_identity not explicitly provided
+        if "deck_cards" in (update.model_fields_set if hasattr(update, "model_fields_set") else set()) \
+                and "color_identity" not in (update.model_fields_set if hasattr(update, "model_fields_set") else set()):
+            card_ids = UserDeckService._deserialize(deck.deck_cards)
+            deck.color_identity = UserDeckService.compute_color_identity(db, card_ids)
         db.commit()
         db.refresh(deck)
         return deck
@@ -77,6 +106,9 @@ class UserDeckService:
             "deck_photo_url": deck.deck_photo_url,
             "pool_photo_url": deck.pool_photo_url,
             "ai_description": deck.ai_description,
+            "archetype": deck.archetype,
+            "archetype_detail": deck.archetype_detail,
+            "color_identity": deck.color_identity,
             "created_at": deck.created_at,
         }
 

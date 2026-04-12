@@ -11,6 +11,7 @@ class CubeCard(Base):
     card_id = Column(Integer, ForeignKey("cards.id"), nullable=False)
     quantity = Column(Integer, default=1, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    removed_at = Column(DateTime, nullable=True)            # soft-delete: when card left the cube
 
     # Relationships
     cube = relationship("Cube", back_populates="cube_cards")
